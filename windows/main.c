@@ -165,9 +165,9 @@ uint32_t readSetting( char *filename, serial_config_t *cfg )
     fp = fopen(filename, "rb");
     if (fp == NULL)
     {
-        printf("Open raw data file error!!!\n");
+        printf("  open setting file error ... create new\n");
         fp = fopen(filename, "ab");
-        fprintf(fp, "2,115200,8,N,1,0");    /// default setting
+        fprintf(fp, "0,115200,8,N,1,0");    /// default setting
         fclose(fp);
         return KS_ERROR;
     }
@@ -204,10 +204,6 @@ uint32_t writeSetting( char *filename, uint32_t port, uint32_t baudrate )
     return KS_OK;
 }
 
-/*
-uart2twi            -> scan device address
-uart2twi [address]  -> read all register data
-*/
 uint8_t uart2twibuff[4096] = {0};
 
 int main( int argc, char **argv )
@@ -225,26 +221,7 @@ int main( int argc, char **argv )
     serial_t s = {.cfg = {2, 115200, {'8', 'N', '1', 0}}};
     serial_config_t loadcfg;
 
-    // serial port setting
-    if (argc == 4)
-    {
-        if ((strcmp("-uart", argv[1]) == 0) || (strcmp("-UART", argv[1]) == 0))
-        {
-            uint32_t port = strtoul(argv[2], NULL, 0);
-            uint32_t baudrate = strtoul(argv[3], NULL, 0);
-            printf("COM%d, baudrate %d\n", port, baudrate);
-            s.cfg.port = port - 1;
-            s.cfg.baudrate = baudrate;
-            status = writeSetting(FILENAME, s.cfg.port, s.cfg.baudrate);
-            if (status != KS_OK)
-            {
-                printf("  write setting file error\n");
-                return KS_ERROR;
-            }
-            return KS_OK;
-        }
-    }
-
+    // load setting
     status = readSetting(FILENAME, &loadcfg);
     if (status == KS_OK)
     {
@@ -258,9 +235,32 @@ int main( int argc, char **argv )
         return KS_ERROR;
     }
 
+    if (argc == 1)
+    {
+        // print serial port information
+        printf("  COM%d, %d, ", s.cfg.port + 1, s.cfg.baudrate);
+    }
+    else if (argc == 4)
+    {
+        if ((strcmp("-uart", argv[1]) == 0) || (strcmp("-UART", argv[1]) == 0) || (strcmp("-Uart", argv[1]) == 0))
+        {
+            uint32_t port = strtoul(argv[2], NULL, 0);
+            uint32_t baudrate = strtoul(argv[3], NULL, 0);
+            printf("  COM%d, baudrate %d\n", port, baudrate);
+            s.cfg.port = port - 1;
+            s.cfg.baudrate = baudrate;
+            status = writeSetting(FILENAME, s.cfg.port, s.cfg.baudrate);
+            if (status != KS_OK)
+            {
+                printf("  write setting file error\n");
+                return KS_ERROR;
+            }
+            return KS_OK;
+        }
+    }
+
     Serial_Config(&s);
 
-    // printf("COM%d, baudrate = %d\n", s.cfg.port + 1, s.cfg.baudrate);
     if (s.open(&s.cfg))
     {
         // printf(">> open com port ... ok\n\n");
@@ -287,13 +287,14 @@ int main( int argc, char **argv )
             }
             else
             {
-                printf("  found %d device ...", devicenum);
+                printf("found %d device ...", devicenum);
                 for (uint32_t i = 0; i < devicenum; i++)
                 {
                     printf(" %02X", uart2twibuff[i]);
                 }
                 printf("\n");
             }
+            return KS_OK;
             break;
         }
         default:
@@ -379,9 +380,8 @@ int main( int argc, char **argv )
                     uint8_t slaveAddress = strtoul(argv[2], NULL, 0);
                     uint8_t deviceRegister = strtoul(argv[3], NULL, 0);
                     uint8_t writeData = strtoul(argv[4], NULL, 0);
-                    uint8_t lens;
-                    lens = i2c_write(&s, slaveAddress, deviceRegister, writeData) - 8;
-                    printf("  %d\n", lens);
+                    i2c_write(&s, slaveAddress, deviceRegister, writeData);
+                    printf("  %02X\n", writeData);
                     break;
                 }
                 default:
@@ -434,7 +434,7 @@ int main( int argc, char **argv )
             {
                 case 2:
                 {
-                    if ((strcmp("-scan", argv[1]) == 0) || (strcmp("-SCAN", argv[1]) == 0))
+                    if ((strcmp("-scan", argv[1]) == 0) || (strcmp("-SCAN", argv[1]) == 0) || (strcmp("-Scan", argv[1]) == 0))
                     {
                         // scan device address
                         uint32_t devicenum;
@@ -454,6 +454,19 @@ int main( int argc, char **argv )
                             printf("\n");
                         }
                     }
+                    else if ((strcmp("-help", argv[1]) == 0) || (strcmp("-HELP", argv[1]) == 0) || (strcmp("-Help", argv[1]) == 0))
+                    {
+                        printf("\n");
+                        // printf("  i2c                               ... i2c and serial port information\n");
+                        // printf("  i2c -help                         ... command help\n");
+                        printf("  -SCAN                             ... i2c scan device\n");
+                        printf("  -REG [ADDRESS]                    ... i2c get all register data\n");
+                        printf("  -UART [PORT] [BAUDRATE]           ... serial port setting\n");
+                        printf("\n");
+                        printf("  R [ADDRESS] [REGISTER]            ... i2c single read data\n");
+                        printf("  R [ADDRESS] [REGISTER] [LENS]     ... i2c multiple write data\n");
+                        printf("  W [ADDRESS] [REGISTER] [DATA]     ... i2c single write data\n");
+                    }
                     else
                     {
                         printf("  i2c command input error\n");
@@ -463,7 +476,7 @@ int main( int argc, char **argv )
                 }
                 case 3:
                 {
-                    if ((strcmp("-reg", argv[1]) == 0) || (strcmp("-REG", argv[1]) == 0))
+                    if ((strcmp("-reg", argv[1]) == 0) || (strcmp("-REG", argv[1]) == 0) || (strcmp("-Reg", argv[1]) == 0))
                     {
                         uint8_t slaveAddress = strtoul(argv[2], NULL, 0);
                         // scan device register
@@ -505,11 +518,10 @@ int main( int argc, char **argv )
             }
             break;
         }
-        case 'H':
-        case 'h':
+        default:
         {
-            printf("uart2twi help\n");
-            break;
+            printf("  i2c command input error\n");
+            return KS_ERROR;
         }
     }
 
