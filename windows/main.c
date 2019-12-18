@@ -22,6 +22,7 @@ static uint32_t write_setting( char *filename, uint32_t port, uint32_t baudrate 
 static uint32_t command_help( void );
 static uint32_t command_uart( uint32_t port, uint32_t baudrate );
 static uint32_t command_i2c_delay( uint32_t times );
+static uint32_t command_i2c_check( void );
 static uint32_t command_i2c_scandevice( void );
 static uint32_t command_i2c_scanregister( uint32_t address );
 static uint32_t command_i2c_write_single( uint32_t slaveAddress, uint32_t deviceRegister, uint32_t sdata );
@@ -93,14 +94,27 @@ int main( int argc, char **argv )
         case 1:
         {
             // >> i2c
-            status = command_i2c_scandevice();
+            status = command_i2c_check();
+            if (status == KS_OK)
+            {
+                status = command_i2c_scandevice();
+            }
             break;
         }
         case 2:
         {
             // >> i2c -scan
-            if ((strcmp("-s", argv[1]) == 0) || (strcmp("-S", argv[1]) == 0) ||
-                (strcmp("-scan", argv[1]) == 0) || (strcmp("-SCAN", argv[1]) == 0))
+            if ((strcmp("-check", argv[1]) == 0) || (strcmp("-CHECK", argv[1]) == 0))
+            {
+                status = command_i2c_check();
+                if (status == KS_OK)
+                {
+                    printf("  device ok\r\n");
+                }
+            }
+            // >> i2c -scan
+            else if ((strcmp("-s", argv[1]) == 0) || (strcmp("-S", argv[1]) == 0) ||
+                     (strcmp("-scan", argv[1]) == 0) || (strcmp("-SCAN", argv[1]) == 0))
             {
                 status = command_i2c_scandevice();
             }
@@ -240,6 +254,7 @@ static uint32_t command_help( void )
     printf("\n");
     // printf("  i2c                               ... i2c and serial port information\n");
     // printf("  i2c -help                         ... command help\n");
+    printf("  -CHECK                            ... check uart to i2c device ok\n");
     printf("  -SCAN                             ... i2c scan device\n");
     printf("  -REG [ADDRESS]                    ... i2c get all register data\n");
     printf("  -UART [PORT] [BAUDRATE]           ... serial port setting\n");
@@ -270,6 +285,17 @@ static uint32_t command_i2c_delay( uint32_t times )
 {
     printf("delay %d ms\n", times);
     i2c_delay(&ser, times);
+    return KS_OK;
+}
+static uint32_t command_i2c_check( void )
+{
+    uint32_t status;
+    status = i2c_read(&ser, 0x00, 0x00, uart2twibuff, 1, 50);
+    if (status != KS_OK)
+    {
+        printf("  no response ... please check your device\n");
+        return KS_ERROR;
+    }
     return KS_OK;
 }
 
