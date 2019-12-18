@@ -49,7 +49,7 @@ uint8_t ksSendBuff[KS_MAX_SEND_BUFF_SIZE] = {0};
 #if KSERIAL_RECV_ENABLE
 uint8_t ksRecvBuff[KS_MAX_RECV_BUFF_SIZE] = {0};
 #endif
-  
+
 /* Prototypes ------------------------------------------------------------------------------*/
 /* Functions -------------------------------------------------------------------------------*/
 

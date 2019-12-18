@@ -64,3 +64,20 @@ plot3(sv.raw(1, :), sv.raw(2, :), sv.raw(3, :), 'r.');
 xlabel('x-axis(LSB)');
 ylabel('y-axis(LSB)');
 zlabel('z-axis(LSB)');
+
+fig = figure(2);
+subplot(3, 1, 1);
+hold on; grid on;
+ylabel('x-axis(LSB)');
+plot(1:size(sv.raw, 2), sv.raw(1, :), 'r');
+subplot(3, 1, 2);
+hold on; grid on;
+ylabel('x-axis(LSB)');
+plot(1:size(sv.raw, 2), sv.raw(2, :), 'g');
+subplot(3, 1, 3);
+hold on; grid on;
+ylabel('x-axis(LSB)');
+plot(1:size(sv.raw, 2), sv.raw(3, :), 'b');
+
+xlabel('sample');
+

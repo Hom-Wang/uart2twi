@@ -33,7 +33,7 @@ methods
         twi.s.delay(second);
     end
 
-    % [rd, cnt] = i2c.read(address, register, lenght)
+    % [rd, cnt] = twi.read(address, register, lenght)
     function varargout = read( twi, address, register, lenght, timeout )
         if (nargin < 5)
             timeout = 1000;
@@ -54,16 +54,16 @@ methods
         varargout = { rd, count };
     end
 
-    % [wi, wb] = i2c.write(address, register, data)
+    % [wi, wb] = twi.write(address, register, data)
     function varargout = write( twi, address, register, data )
         [info, send] = twi.s.packetSend(uint8([address*2, register]), data, 'R1');
         varargout = { info, send };
     end
 
-    % address = i2c.scandevice()
-    % address = i2c.scandevice('printon')
+    % address = twi.scandevice()
+    % address = twi.scandevice('printon')
     function varargout = scandevice( twi, varargin )
-        [ri, rd, ~, ~, cnt] = twi.s.packetSendRecv([171, 0], 0, 'R2');
+        [ri, rd] = twi.s.packetSendRecv([171, 0], 0, 'R2');
 
         if strcmp('printon', varargin{end})
             fprintf('\n');
@@ -75,13 +75,13 @@ methods
             fprintf('\n\n');
         end
         
-        varargout = { rd, ri, cnt };
+        varargout = { rd, ri };
     end
 
-    % reg = i2c.scanregister(address)
-    % reg = i2c.scanregister(address, 'printon')
+    % reg = twi.scanregister(address)
+    % reg = twi.scanregister(address, 'printon')
     function varargout = scanregister( twi, address, varargin )
-        [ri, rd, ~, ~, cnt] = twi.s.packetSendRecv([203, address*2], 0, 'R2');
+        [ri, rd] = twi.s.packetSendRecv([203, address*2], 0, 'R2');
 
         if strcmp('printon', varargin{end})
             fprintf('\n');
@@ -94,7 +94,7 @@ methods
             fprintf('\n');
         end
 
-        varargout = { rd, ri, cnt };
+        varargout = { rd, ri };
     end
 
 end
