@@ -3,8 +3,12 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <conio.h>
 
-#include "uart2twi.h"
+#include "kStatus.h"
+#include "kSerial.h"
+#include "serial.h"
+// #include "uart2twi.h"
 
 /* Define ----------------------------------------------------------------------------------*/
 #define FILENAME    "setting.txt"
@@ -12,12 +16,9 @@
 /* Macro -----------------------------------------------------------------------------------*/
 /* Typedef ---------------------------------------------------------------------------------*/
 /* Variables -------------------------------------------------------------------------------*/
-uint8_t uart2twibuff[4096] = {0};
-serial_t ser = {.cfg = {0, 115200, {'8', 'N', '1', 0}}};
-
 /* Prototypes ------------------------------------------------------------------------------*/
-static uint32_t read_setting( char *filename, serial_config_t *cfg );
-static uint32_t write_setting( char *filename, uint32_t port, uint32_t baudrate );
+static uint32_t load_setting( char *filename, int *port, int *baudrate );
+static uint32_t update_setting( char *filename, int port, int baudrate );
 
 static uint32_t command_help( void );
 static uint32_t command_uart( uint32_t port, uint32_t baudrate );
@@ -26,7 +27,7 @@ static uint32_t command_i2c_check( void );
 static uint32_t command_i2c_scandevice( void );
 static uint32_t command_i2c_scanregister( uint32_t address );
 static uint32_t command_i2c_write_single( uint32_t slaveAddress, uint32_t deviceRegister, uint32_t sdata );
-static uint32_t command_i2c_write_multiple( uint32_t slaveAddress, uint32_t deviceRegister, uint32_t *writeData );
+// static uint32_t command_i2c_write_multiple( uint32_t slaveAddress, uint32_t deviceRegister, uint32_t *writeData );
 static uint32_t command_i2c_read_single( uint32_t slaveAddress, uint32_t deviceRegister );
 static uint32_t command_i2c_read_multiple( uint32_t slaveAddress, uint32_t deviceRegister, uint32_t readLength );
 
@@ -36,11 +37,22 @@ int main( int argc, char **argv )
 {
     uint32_t status;
 
+    // scan comport
+    if (Serial_GetComportList(&cplist))
+    {
+        printf("\n  scan comport error\n");
+        return KS_ERROR;
+    }
+
     // load setting
-    status = read_setting(FILENAME, &ser.cfg);
+    status = load_setting(FILENAME, &s.port, &s.cfg.baudrate);
     if (status != KS_OK)
     {
-        return KS_ERROR;
+        if (cplist.num > 0)
+        {
+            s.port = cplist.port[0];
+            update_setting(FILENAME, s.port, s.cfg.baudrate);
+        }
     }
 
     // command (without serial)
@@ -49,17 +61,71 @@ int main( int argc, char **argv )
         case 1:
         {
             // >> i2c
-            printf("  COM%d, %d,", ser.cfg.port + 1, ser.cfg.baudrate);
+            printf("  COM%d, %d", s.port, s.cfg.baudrate);
             break;
         }
         case 2:
         {
             // >> i2c -help
-            if ((strcmp("-h", argv[1]) == 0) || (strcmp("-H", argv[1]) == 0) ||
-                (strcmp("-help", argv[1]) == 0) || (strcmp("-HELP", argv[1]) == 0))
+            if ((strcmp("-h", argv[1]) == 0) || (strcmp("-H", argv[1]) == 0) || (strcmp("-help", argv[1]) == 0) || (strcmp("-HELP", argv[1]) == 0))
             {
                 status = command_help();
                 return status;
+            }
+             // >> i2c -uart
+            else if ((strcmp("-uart", argv[1]) == 0) || (strcmp("-UART", argv[1]) == 0))
+            {
+                if (cplist.num > 0)
+                {
+                    s.port = cplist.port[0];
+                    update_setting(FILENAME, s.port, s.cfg.baudrate);
+                    printf("  select COM%d, baudrate %d\n", s.port, s.cfg.baudrate);
+                }
+                else
+                {
+                    printf("  not available port\n");
+                }
+            }
+            break;
+        }
+        case 3:
+        {
+            // >> i2c -uart list
+            if ((strcmp("-uart", argv[1]) == 0) || (strcmp("-UART", argv[1]) == 0))
+            {
+                if ((strcmp("list", argv[2]) == 0) || (strcmp("LIST", argv[2]) == 0))
+                {
+                    printf("\n");
+                    for (uint32_t i = 0; i < cplist.num; i++)
+                    {
+                        printf("  [%d] COM%d\t(%s)\n", i + 1, cplist.port[i], cplist.info[i]);
+                    }
+                    if (cplist.num > 0)
+                    {
+                        printf("\n  ");
+                        char portSelect = getch();
+                        if ((portSelect < 48) || (portSelect > 57))
+                        {
+                            printf("wrong input ... %c\n", portSelect);
+                            return KS_ERROR;
+                        }
+                        portSelect -= 48;
+                        if (portSelect == 0)
+                        {
+                            printf("exit\n");
+                            return KS_OK;
+                        }
+                        else if (portSelect > cplist.num)
+                        {
+                            printf("not in list ... %d\n", portSelect);
+                            return KS_ERROR;
+                        }
+                        s.port = cplist.port[portSelect - 1];
+                        update_setting(FILENAME, s.port, s.cfg.baudrate);
+                        printf("select COM%d, baudrate %d\n", s.port, s.cfg.baudrate);
+                    }
+                }
+                return KS_OK;
             }
             break;
         }
@@ -82,9 +148,9 @@ int main( int argc, char **argv )
     }
 
     // open serial port
-    Serial_Config(&ser);
-    if (!ser.open(&ser.cfg))
+    if (Serial_OpenComport(&s))
     {
+        printf("\n  open serial error\n");
         return KS_ERROR;
     }
 
@@ -97,7 +163,13 @@ int main( int argc, char **argv )
             status = command_i2c_check();
             if (status == KS_OK)
             {
+                // printf(", connect success,");
+                printf(",");
                 status = command_i2c_scandevice();
+            }
+            else
+            {
+                printf(", connect failed\n");
             }
             break;
         }
@@ -111,10 +183,14 @@ int main( int argc, char **argv )
                 {
                     printf("  device ok\r\n");
                 }
+                else
+                {
+                    printf("  no response ... please check your device (COM%d, baudrate %d)\n", s.port, s.cfg.baudrate);
+                }
             }
             // >> i2c -scan
             else if ((strcmp("-s", argv[1]) == 0) || (strcmp("-S", argv[1]) == 0) ||
-                     (strcmp("-scan", argv[1]) == 0) || (strcmp("-SCAN", argv[1]) == 0))
+                    (strcmp("-scan", argv[1]) == 0) || (strcmp("-SCAN", argv[1]) == 0))
             {
                 status = command_i2c_scandevice();
             }
@@ -165,7 +241,7 @@ int main( int argc, char **argv )
             }
             // >> i2c -write address register data
             else if ((strcmp("w", argv[1]) == 0) || (strcmp("-w", argv[1]) == 0) || (strcmp("-W", argv[1]) == 0) ||
-                     (strcmp("-write", argv[1]) == 0) || (strcmp("-WRITE", argv[1]) == 0))
+                    (strcmp("-write", argv[1]) == 0) || (strcmp("-WRITE", argv[1]) == 0))
             {
                     uint32_t slaveAddress = strtoul(argv[2], NULL, 0);
                     uint32_t deviceRegister = strtoul(argv[3], NULL, 0);
@@ -174,24 +250,24 @@ int main( int argc, char **argv )
             }
             break;
         }
-        case 6:
-        {
-            // TODO: multiple write "case n"
-            // >> i2c -write address register data1 data2 ...
-            if ((strcmp("w", argv[1]) == 0) || (strcmp("-w", argv[1]) == 0) || (strcmp("-W", argv[1]) == 0) ||
-                (strcmp("-write", argv[1]) == 0) || (strcmp("-WRITE", argv[1]) == 0))
-            {
-                    uint32_t slaveAddress = strtoul(argv[2], NULL, 0);
-                    uint32_t deviceRegister = strtoul(argv[3], NULL, 0);
-                    uint32_t writeData[2] = {0};
-                    for (uint32_t i = 0; i < 2; i++)
-                    {
-                        writeData[i] = strtoul(argv[4 + i], NULL, 0);
-                    }
-                    status =  command_i2c_write_multiple(slaveAddress, deviceRegister, writeData);
-            }
-            break;
-        }
+        // case 6:
+        // {
+        //     // TODO: multiple write "case n"
+        //     // >> i2c -write address register data1 data2 ...
+        //     if ((strcmp("w", argv[1]) == 0) || (strcmp("-w", argv[1]) == 0) || (strcmp("-W", argv[1]) == 0) ||
+        //         (strcmp("-write", argv[1]) == 0) || (strcmp("-WRITE", argv[1]) == 0))
+        //     {
+        //             uint32_t slaveAddress = strtoul(argv[2], NULL, 0);
+        //             uint32_t deviceRegister = strtoul(argv[3], NULL, 0);
+        //             uint32_t writeData[2] = {0};
+        //             for (uint32_t i = 0; i < 2; i++)
+        //             {
+        //                 writeData[i] = strtoul(argv[4 + i], NULL, 0);
+        //             }
+        //             status =  command_i2c_write_multiple(slaveAddress, deviceRegister, writeData);
+        //     }
+        //     break;
+        // }
         default:
         {
             break;
@@ -199,12 +275,16 @@ int main( int argc, char **argv )
     }
 
     // Close COM Port
-    ser.close(&ser.cfg);
+    Serial_CloseComport(&s);
+    Serial_FreeComportList(&cplist);
 
     return KS_OK;
 }
 
-static uint32_t read_setting( char *filename, serial_config_t *cfg )
+#define DEFAULT_COMPORT     1
+#define DEFAULT_BAUDRATE    115200
+
+static uint32_t load_setting( char *filename, int *port, int *baudrate )
 {
     FILE *fp;
     fp = fopen(filename, "rb");
@@ -212,28 +292,22 @@ static uint32_t read_setting( char *filename, serial_config_t *cfg )
     {
         printf("  open setting file error ... create new\n");
         fp = fopen(filename, "ab");
-        fprintf(fp, "0,115200,8,N,1,0");    /// default setting
+        *port = DEFAULT_COMPORT;
+        *baudrate = DEFAULT_BAUDRATE;
+        fprintf(fp, "%d,%d,8,N,1,0", *port, *baudrate);    // default setting
         fclose(fp);
         return KS_ERROR;
     }
     else
     {
-        int port;
-        int baudrate;
         char mode[4] = {0};
-        fscanf(fp, "%d,%d,%c,%c,%c,%c", &port, &baudrate, &mode[0], &mode[1], &mode[2], &mode[3]);
-        cfg->port = port;
-        cfg->baudrate = baudrate;
-        cfg->mode[0] = mode[0];
-        cfg->mode[1] = mode[1];
-        cfg->mode[2] = mode[2];
-        cfg->mode[3] = mode[3] - 48;
+        fscanf(fp, "%d,%d,%c,%c,%c,%c", port, baudrate, &mode[0], &mode[1], &mode[2], &mode[3]);
         fclose(fp);
     }
     return KS_OK;
 }
 
-static uint32_t write_setting( char *filename, uint32_t port, uint32_t baudrate )
+static uint32_t update_setting( char *filename, int port, int baudrate )
 {
     FILE *fp;
     fp = fopen(filename, "wb");
@@ -243,7 +317,7 @@ static uint32_t write_setting( char *filename, uint32_t port, uint32_t baudrate 
     }
     else
     {
-        fprintf(fp, "%d,%d,8,N,1,0", port, baudrate);    /// default setting
+        fprintf(fp, "%d,%d,8,N,1,0", port, baudrate);   // default setting
         fclose(fp);
     }
     return KS_OK;
@@ -270,9 +344,9 @@ static uint32_t command_uart( uint32_t port, uint32_t baudrate )
     uint32_t status;
 
     printf("  COM%d, baudrate %d\n", port, baudrate);
-    ser.cfg.port = port - 1;
-    ser.cfg.baudrate = baudrate;
-    status = write_setting(FILENAME, ser.cfg.port, ser.cfg.baudrate);
+    s.port = port;
+    s.cfg.baudrate = baudrate;
+    status = update_setting(FILENAME, s.port, s.cfg.baudrate);
     if (status != KS_OK)
     {
         printf("  write setting file error\n");
@@ -284,26 +358,21 @@ static uint32_t command_uart( uint32_t port, uint32_t baudrate )
 static uint32_t command_i2c_delay( uint32_t times )
 {
     printf("delay %d ms\n", times);
-    i2c_delay(&ser, times);
+    // i2c_delay(&ser, times);
     return KS_OK;
 }
+
 static uint32_t command_i2c_check( void )
 {
-    uint32_t status;
-    status = i2c_read(&ser, 0x00, 0x00, uart2twibuff, 1, 50);
-    if (status != KS_OK)
-    {
-        printf("  no response ... please check your device\n");
-        return KS_ERROR;
-    }
-    return KS_OK;
+    return kSerial_TwiCheck();
 }
 
 static uint32_t command_i2c_scandevice( void )
 {
     // scan device address
+    uint8_t slaveAddr[128];
     uint32_t devicenum;
-    devicenum = i2c_scandevice(&ser, uart2twibuff, 100);
+    devicenum = kSerial_TwiScanDevice(slaveAddr);
     if (devicenum > 128)
     {
         printf("  i2c secn device error\n");
@@ -314,7 +383,7 @@ static uint32_t command_i2c_scandevice( void )
         printf("  found %d device ...", devicenum);
         for (uint32_t i = 0; i < devicenum; i++)
         {
-            printf(" %02X", uart2twibuff[i]);
+            printf(" %02X", slaveAddr[i]);
         }
         printf("\n");
     }
@@ -323,10 +392,11 @@ static uint32_t command_i2c_scandevice( void )
 
 static uint32_t command_i2c_scanregister( uint32_t address )
 {
+    uint8_t reg[256];
     uint32_t status;
 
     // scan device register
-    status = i2c_scanregister(&ser, address, uart2twibuff, 100);
+    status = kSerial_TwiScanRegister(address, reg);
     if (status != KS_OK)
     {
         printf("  i2c secn register error\n");
@@ -340,10 +410,10 @@ static uint32_t command_i2c_scanregister( uint32_t address )
         {
             printf("  %02X: %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X %02X\n",
                 i,
-                uart2twibuff[i +  0], uart2twibuff[i +  1], uart2twibuff[i +  2], uart2twibuff[i +  3],
-                uart2twibuff[i +  4], uart2twibuff[i +  5], uart2twibuff[i +  6], uart2twibuff[i +  7],
-                uart2twibuff[i +  8], uart2twibuff[i +  9], uart2twibuff[i + 10], uart2twibuff[i + 11],
-                uart2twibuff[i + 12], uart2twibuff[i + 13], uart2twibuff[i + 14], uart2twibuff[i + 15]
+                reg[i +  0], reg[i +  1], reg[i +  2], reg[i +  3],
+                reg[i +  4], reg[i +  5], reg[i +  6], reg[i +  7],
+                reg[i +  8], reg[i +  9], reg[i + 10], reg[i + 11],
+                reg[i + 12], reg[i + 13], reg[i + 14], reg[i + 15]
             );
         }
     }
@@ -353,44 +423,45 @@ static uint32_t command_i2c_scanregister( uint32_t address )
 static uint32_t command_i2c_write_single( uint32_t slaveAddress, uint32_t deviceRegister, uint32_t writeData )
 {
     // >> i2c -w 0x0c 0x00 32
-    i2c_write(&ser, slaveAddress, deviceRegister, writeData);
+    kSerial_TwiWriteReg(slaveAddress, deviceRegister, writeData);
     printf("  %02X\n", writeData);
     return KS_OK;
 }
 
-static uint32_t command_i2c_write_multiple( uint32_t slaveAddress, uint32_t deviceRegister, uint32_t *writeData )
-{
-#if 1
-    printf("  i2c multiple write not ready\n");
-    return KS_ERROR;
-#else
-    // multiple write
-    uint8_t slaveAddress = strtoul(argv[2], NULL, 0);
-    uint8_t deviceRegister = strtoul(argv[3], NULL, 0);
-    uint8_t writeLength = argc - 4;
-    uint8_t lens;
-    for (uint32_t i = 0; i < writeLength; i++)
-    {
-        uart2twibuff[i] = strtoul(argv[i + 4], NULL, 0);
-    }
-    // lens = i2c_write(&s, slaveAddress, deviceRegister, uart2twibuff, writeLength);
-    if (lens < 2)
-    {
-        printf("  i2c multiple write error\n");
-    }
-    else
-    {
-        printf("  %d\n", writeLength);
-    }
-#endif
-}
+// static uint32_t command_i2c_write_multiple( uint32_t slaveAddress, uint32_t deviceRegister, uint32_t *writeData )
+// {
+// #if 1
+//     printf("  i2c multiple write not ready\n");
+//     return KS_ERROR;
+// #else
+//     // multiple write
+//     uint8_t slaveAddress = strtoul(argv[2], NULL, 0);
+//     uint8_t deviceRegister = strtoul(argv[3], NULL, 0);
+//     uint8_t writeLength = argc - 4;
+//     uint8_t lens;
+//     for (uint32_t i = 0; i < writeLength; i++)
+//     {
+//         uart2twibuff[i] = strtoul(argv[i + 4], NULL, 0);
+//     }
+//     // lens = i2c_write(&s, slaveAddress, deviceRegister, uart2twibuff, writeLength);
+//     if (lens < 2)
+//     {
+//         printf("  i2c multiple write error\n");
+//     }
+//     else
+//     {
+//         printf("  %d\n", writeLength);
+//     }
+// #endif
+// }
 
 static uint32_t command_i2c_read_single( uint32_t slaveAddress, uint32_t deviceRegister )
 {
+    uint8_t res;
     uint32_t status;
 
     // single read
-    status = i2c_read(&ser, slaveAddress, deviceRegister, uart2twibuff, 1, 50);
+    status = kSerial_TwiReadReg(slaveAddress, deviceRegister, &res);
     if (status != KS_OK)
     {
         printf("  i2c single read error\n");
@@ -398,7 +469,7 @@ static uint32_t command_i2c_read_single( uint32_t slaveAddress, uint32_t deviceR
     }
     else
     {
-        printf("  %02X\n", uart2twibuff[0]);
+        printf("  %02X\n", res);
     }
 
     return KS_OK;
@@ -406,9 +477,10 @@ static uint32_t command_i2c_read_single( uint32_t slaveAddress, uint32_t deviceR
 
 static uint32_t command_i2c_read_multiple( uint32_t slaveAddress, uint32_t deviceRegister, uint32_t readLength )
 {
+    uint8_t res[256];
     uint32_t status;
 
-    status = i2c_read(&ser, slaveAddress, deviceRegister, uart2twibuff, readLength, 50);
+    status = kSerial_TwiReadRegs(slaveAddress, deviceRegister, res, readLength);
     if (status != KS_OK)
     {
         printf("  i2c multiple read error\n");
@@ -419,7 +491,7 @@ static uint32_t command_i2c_read_multiple( uint32_t slaveAddress, uint32_t devic
         printf(" ");
         for (uint32_t i = 0; i < readLength; i++)
         {
-            printf(" %02X", uart2twibuff[i]);
+            printf(" %02X", res[i]);
         }
         printf("\n");
     }

@@ -29,10 +29,9 @@ INC_DIR := inc
 OUT_DIR := out
 
 SRC =	main.c \
-		rs232.c \
 		serial.c \
-		kSerial.c \
-		uart2twi.c
+		kLogger.c \
+		kSerial.c
 
 INCS := -I $(INC_DIR)
 
